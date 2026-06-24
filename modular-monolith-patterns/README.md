@@ -117,7 +117,7 @@ A query handler, sanitized to a generic `CrewRole` entity:
 public class GetCrewRoleByIdQueryHandler(
     IUnitOfWork unitOfWork,
     ILogger<GetCrewRoleByIdQueryHandler> logger,
-    IMapper mapper)
+    CrewRoleMapper mapper)
     : IRequestHandler<GetCrewRoleByIdQuery, Result<CrewRoleDto>>
 {
     public async Task<Result<CrewRoleDto>> Handle(
@@ -133,7 +133,7 @@ public class GetCrewRoleByIdQueryHandler(
                 Error.Create(ErrorType.NotFound, ErrorMessages.CrewRoleNotFound));
         }
 
-        return Result<CrewRoleDto>.Success(mapper.Map<CrewRoleDto>(entity));
+        return Result<CrewRoleDto>.Success(mapper.ToDto(entity));
     }
 }
 ```
@@ -143,7 +143,7 @@ A few senior-level conventions are visible here, and they were enforced consiste
 - **One responsibility per handler.** `GetCrewRoleByIdQueryHandler` does one readable thing. This is the Single Responsibility Principle in its most literal, useful form — every handler has exactly one reason to change.
 - **Reads use `asNoTracking`.** Queries never need EF Core's change tracker, so turning it off avoids the snapshot overhead on read paths.
 - **No raw SQL in handlers.** All data access — including any hand-tuned SQL or stored-procedure calls — lives behind repository methods. The Application layer calls repositories; it never touches the database directly. That keeps the layer boundary honest and the handlers unit-testable.
-- **Mapping is centralized.** Entity-to-DTO mapping goes through AutoMapper profiles, never hand-rolled inside handlers, so the shape of an API contract changes in one place.
+- **Mapping is centralized and compile-time-safe.** Entity-to-DTO mapping goes through [Mapperly](https://mapperly.riok.app/) source-generated mappers, never hand-rolled inside handlers. Because the mapping is generated at compile time, a mismatched or missing member is a build error rather than a runtime surprise — and there's no reflection cost. (This deliberately replaced AutoMapper: its only versions patched against [CVE-2026-32933](https://github.com/advisories/GHSA-rvv3-g6hj-g44x) are commercially licensed, so for a public sample a free, source-generated mapper is the better call.)
 - **Not-found is a result, not an exception.** More on that in [§6](#6-errors-as-values-the-resultt-pattern).
 
 The win of CQRS here isn't theoretical purity. It's that the codebase becomes **navigable**: a new engineer (or an AI agent) looking for "what happens when a crew role is created" goes straight to `CreateCrewRoleCommandHandler` and reads one self-contained file. There's no spelunking through a 900-line service.
@@ -364,11 +364,11 @@ The repository backs every pattern above with a small, complete solution. It's d
 ```
 src/
   ModularMonolith.Domain          // entities, aggregates, domain events, Result<T>, ports — ZERO dependencies
-  ModularMonolith.Application     // CQRS handlers, validators, mapping, pipeline behaviors (MediatR, FluentValidation, AutoMapper)
-  ModularMonolith.Infrastructure  // EF Core (SQLite), repositories, unit of work, domain-event dispatch, system clock
+  ModularMonolith.Application     // CQRS handlers, validators, mapping, pipeline behaviors (MediatR, FluentValidation, Mapperly)
+  ModularMonolith.Infrastructure  // EF Core (SQL Server), repositories, unit of work, domain-event dispatch, system clock
   ModularMonolith.WebApi          // minimal-API endpoints, Result -> HTTP mapping, DI composition root
 tests/
-  ModularMonolith.UnitTests          // domain logic, the validation behavior, and handlers (real DbContext on in-memory SQLite)
+  ModularMonolith.UnitTests          // domain logic, the validation behavior, and handlers (repositories mocked with NSubstitute)
   ModularMonolith.ArchitectureTests  // NetArchTest assertions that enforce the dependency rules
 ```
 
@@ -378,21 +378,29 @@ Two modules — **Jobs** (the rich one: create, change status with a state machi
 
 A reviewer reading this repo's working agreement ([`CLAUDE.md`](CLAUDE.md) and [`CODE-REVIEW-CHECKLIST.md`](CODE-REVIEW-CHECKLIST.md)) will look for these, so they're explicit:
 
-- **The Domain has zero outward dependencies — enforced, not just claimed.** Domain events are a Domain-owned `IDomainEvent` marker with no MediatR reference. The Application layer adapts them into MediatR notifications via `DomainEventNotification<T>`, and `LayerDependencyTests` fails the build if MediatR, EF Core, AutoMapper, or ASP.NET ever leak into Domain.
+- **The Domain has zero outward dependencies — enforced, not just claimed.** Domain events are a Domain-owned `IDomainEvent` marker with no MediatR reference. The Application layer adapts them into MediatR notifications via `DomainEventNotification<T>`, and `LayerDependencyTests` fails the build if MediatR, EF Core, Mapperly, or ASP.NET ever leak into Domain.
 - **The unit of work hides EF Core.** `IUnitOfWork` (in Domain) exposes `SaveChangesAsync` and `ExecuteInTransactionAsync` — but no `DbContext` and no `IDbContextTransaction`. The transaction primitive stays in Infrastructure.
 - **Transactions wrap commands only.** The `TransactionBehavior` checks an `ICommandBase` marker and skips queries — no point opening a transaction for a read.
 - **Behavior order is load-bearing** and lives in one place: `AddApplication` registers Logging → Validation → Transaction, in that order, with a comment explaining why.
-- **Database creation is `EnsureCreated` for demo convenience only.** The writeup's point about out-of-process migration runners (§8) is the real-world answer; a single-file SQLite `EnsureCreated` just keeps "clone and run" friction-free here.
+- **Database creation is `EnsureCreated` for demo convenience only.** The writeup's point about out-of-process migration runners (§8) is the real-world answer; `EnsureCreated` just spares you a migration step when first pointing the app at a database.
+- **SQL Server, talked to only through ports.** The provider is an Infrastructure detail behind `IUnitOfWork` and the repository interfaces, so it's a one-line swap (`UseSqlServer` ↔ another provider) with nothing in Domain or Application changing. Using a client/server engine also keeps the dependency graph free of a bundled native database, which sidesteps the `SQLitePCLRaw` SQLite advisory class entirely.
 
 ## Running it
 
-Requires the .NET SDK (the solution targets **.NET 8 LTS** for easy local runs; the production system it's modeled on ran on .NET 10).
+Requires the .NET SDK (the solution targets **.NET 8 LTS**; the production system it's modeled on ran on .NET 10). Building and testing need nothing else — the tests mock the repositories, so there's no database dependency to run the suite:
 
 ```bash
 # from the modular-monolith-patterns/ folder
 dotnet build ModularMonolith.sln                 # compile everything
-dotnet test  ModularMonolith.sln                 # run unit + architecture tests
-dotnet run --project src/ModularMonolith.WebApi  # start the API (Swagger UI at the root)
+dotnet test  ModularMonolith.sln                 # unit + architecture tests (no database needed)
+```
+
+To **run the API** you need a reachable SQL Server. Point `ConnectionStrings:Default` at it — edit `src/ModularMonolith.WebApi/appsettings.json`, or override without touching the file:
+
+```bash
+# example: local SQL Server / LocalDB / Azure SQL — use your own connection string
+export ConnectionStrings__Default="Server=localhost;Database=ModularMonolithDemo;Trusted_Connection=True;TrustServerCertificate=True"
+dotnet run --project src/ModularMonolith.WebApi  # creates the DB via EnsureCreated, Swagger UI at the root
 ```
 
 Once the API is running, the endpoints are:
@@ -409,4 +417,4 @@ Creating a job and changing its status will log the domain-event handlers firing
 
 ---
 
-*Part of my [engineering portfolio](https://github.com/dlastorta). Companion writeup: [agentic-coding-workflow](https://github.com/dlastorta/agentic-coding-workflow). Contact: dlastorta@gmail.com · [linkedin.com/in/diegolast
+*Part of my [engineering portfolio](https://github.com/dlastorta). Companion writeup: [agentic-coding-workflow](https://github.com/dlastorta/agentic-coding-workflow). Contact: dlastorta@gmail.com · [linkedin.com/in/diegolastorta](https://linkedin.com/in/diegolastorta)*

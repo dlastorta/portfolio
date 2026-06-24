@@ -22,8 +22,9 @@ public sealed class UnitOfWork(
         Func<Task<TResult>> operation,
         CancellationToken cancellationToken = default)
     {
-        // The execution strategy is what makes this safe under a retrying provider;
-        // it's a no-op retry-wise on SQLite but keeps the pattern provider-agnostic.
+        // Going through the execution strategy is what makes this correct under a
+        // retrying provider (e.g. SQL Server with EnableRetryOnFailure): the whole
+        // transaction is replayed as a unit on a transient failure.
         var strategy = context.Database.CreateExecutionStrategy();
 
         return await strategy.ExecuteAsync(async () =>

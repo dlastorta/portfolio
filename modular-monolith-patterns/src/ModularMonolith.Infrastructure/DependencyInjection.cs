@@ -16,9 +16,10 @@ public static class DependencyInjection
         IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("Default")
-            ?? "Data Source=modularmonolith.db";
+            ?? throw new InvalidOperationException(
+                "Connection string 'Default' was not found. Set ConnectionStrings:Default to a SQL Server connection string.");
 
-        services.AddDbContext<ApplicationDbContext>(options => options.UseSqlite(connectionString));
+        services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(connectionString));
 
         services.AddScoped<IJobRepository, JobRepository>();
         services.AddScoped<ICrewRoleRepository, CrewRoleRepository>();

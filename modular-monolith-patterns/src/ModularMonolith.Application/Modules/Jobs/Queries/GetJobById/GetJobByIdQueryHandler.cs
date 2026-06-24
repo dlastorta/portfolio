@@ -1,4 +1,3 @@
-using AutoMapper;
 using ModularMonolith.Application.Common.Messaging;
 using ModularMonolith.Domain.Abstractions;
 using ModularMonolith.Domain.Common;
@@ -7,7 +6,7 @@ namespace ModularMonolith.Application.Modules.Jobs.Queries.GetJobById;
 
 public sealed class GetJobByIdQueryHandler(
     IUnitOfWork unitOfWork,
-    IMapper mapper)
+    JobMapper mapper)
     : IQueryHandler<GetJobByIdQuery, JobDto>
 {
     public async Task<Result<JobDto>> Handle(GetJobByIdQuery request, CancellationToken cancellationToken)
@@ -17,6 +16,6 @@ public sealed class GetJobByIdQueryHandler(
 
         return job is null
             ? Result.Failure<JobDto>(Error.NotFound($"Job '{request.JobId}' was not found."))
-            : Result.Success(mapper.Map<JobDto>(job));
+            : Result.Success(mapper.ToDto(job));
     }
 }

@@ -3,6 +3,8 @@ using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using ModularMonolith.Application.Common.Behaviors;
 using ModularMonolith.Application.Common.Events;
+using ModularMonolith.Application.Modules.Catalog;
+using ModularMonolith.Application.Modules.Jobs;
 
 namespace ModularMonolith.Application;
 
@@ -24,7 +26,11 @@ public static class DependencyInjection
         });
 
         services.AddValidatorsFromAssembly(assembly);
-        services.AddAutoMapper(assembly);
+
+        // Mapperly mappers are stateless source-generated classes — register one per module.
+        services.AddSingleton<JobMapper>();
+        services.AddSingleton<CrewRoleMapper>();
+
         services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
 
         return services;

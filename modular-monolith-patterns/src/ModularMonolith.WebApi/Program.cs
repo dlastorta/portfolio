@@ -13,7 +13,7 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Demo convenience: create and seed the SQLite database at startup.
+// Demo convenience: create and seed the database at startup.
 // A real deployment applies migrations out-of-process (see the README's migration-runner note).
 using (var scope = app.Services.CreateScope())
 {

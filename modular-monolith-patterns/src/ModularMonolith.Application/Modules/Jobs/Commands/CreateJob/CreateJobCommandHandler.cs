@@ -1,4 +1,3 @@
-using AutoMapper;
 using Microsoft.Extensions.Logging;
 using ModularMonolith.Application.Common.Messaging;
 using ModularMonolith.Domain.Abstractions;
@@ -10,7 +9,7 @@ namespace ModularMonolith.Application.Modules.Jobs.Commands.CreateJob;
 public sealed class CreateJobCommandHandler(
     IUnitOfWork unitOfWork,
     IClock clock,
-    IMapper mapper,
+    JobMapper mapper,
     ILogger<CreateJobCommandHandler> logger)
     : ICommandHandler<CreateJobCommand, JobDto>
 {
@@ -23,6 +22,6 @@ public sealed class CreateJobCommandHandler(
 
         logger.LogInformation("Created job {JobId}", job.Id);
 
-        return Result.Success(mapper.Map<JobDto>(job));
+        return Result.Success(mapper.ToDto(job));
     }
 }

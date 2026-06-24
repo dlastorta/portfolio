@@ -1,4 +1,3 @@
-using AutoMapper;
 using ModularMonolith.Application.Common.Messaging;
 using ModularMonolith.Domain.Abstractions;
 using ModularMonolith.Domain.Common;
@@ -8,7 +7,7 @@ namespace ModularMonolith.Application.Modules.Jobs.Commands.ChangeJobStatus;
 public sealed class ChangeJobStatusCommandHandler(
     IUnitOfWork unitOfWork,
     IClock clock,
-    IMapper mapper)
+    JobMapper mapper)
     : ICommandHandler<ChangeJobStatusCommand, JobDto>
 {
     public async Task<Result<JobDto>> Handle(ChangeJobStatusCommand request, CancellationToken cancellationToken)
@@ -30,6 +29,6 @@ public sealed class ChangeJobStatusCommandHandler(
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return Result.Success(mapper.Map<JobDto>(job));
+        return Result.Success(mapper.ToDto(job));
     }
 }

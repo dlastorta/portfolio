@@ -40,7 +40,7 @@ public class LayerDependencyTests
             .HaveDependencyOnAny(
                 "MediatR",
                 "Microsoft.EntityFrameworkCore",
-                "AutoMapper",
+                "Riok.Mapperly",
                 "FluentValidation",
                 "Microsoft.AspNetCore")
             .GetResult();

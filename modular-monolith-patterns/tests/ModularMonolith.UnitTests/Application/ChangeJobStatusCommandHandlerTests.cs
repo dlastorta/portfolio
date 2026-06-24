@@ -1,74 +1,75 @@
 using FluentAssertions;
+using ModularMonolith.Application.Modules.Jobs;
 using ModularMonolith.Application.Modules.Jobs.Commands.ChangeJobStatus;
+using ModularMonolith.Domain.Abstractions;
 using ModularMonolith.Domain.Common;
 using ModularMonolith.Domain.Modules.Jobs;
-using ModularMonolith.Domain.Modules.Jobs.Events;
 using ModularMonolith.UnitTests.Common;
+using NSubstitute;
 using Xunit;
 
 namespace ModularMonolith.UnitTests.Application;
 
 public class ChangeJobStatusCommandHandlerTests
 {
-    [Fact]
-    public async Task Handle_returns_NotFound_when_the_job_does_not_exist()
+    private static (IUnitOfWork UnitOfWork, IJobRepository Jobs) CreateUnitOfWork()
     {
-        using var harness = new ApplicationTestHarness();
-        var handler = new ChangeJobStatusCommandHandler(
-            harness.UnitOfWork,
-            new FakeClock(DateTime.UtcNow),
-            harness.Mapper);
+        var jobs = Substitute.For<IJobRepository>();
+        var unitOfWork = Substitute.For<IUnitOfWork>();
+        unitOfWork.Jobs.Returns(jobs);
+        return (unitOfWork, jobs);
+    }
 
-        var result = await handler.Handle(
+    private static ChangeJobStatusCommandHandler CreateHandler(IUnitOfWork unitOfWork) =>
+        new(unitOfWork, new FakeClock(DateTime.UtcNow), new JobMapper());
+
+    [Fact]
+    public async Task Handle_returns_NotFound_and_does_not_save_when_the_job_is_missing()
+    {
+        var (unitOfWork, jobs) = CreateUnitOfWork();
+        jobs.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Job?>(null));
+
+        var result = await CreateHandler(unitOfWork).Handle(
             new ChangeJobStatusCommand(Guid.NewGuid(), JobStatus.Scheduled),
             CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Type.Should().Be(ErrorType.NotFound);
+        await unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Handle_changes_status_and_dispatches_the_event()
+    public async Task Handle_changes_status_and_saves_on_a_valid_transition()
     {
-        using var harness = new ApplicationTestHarness();
-        var job = Job.Create("x", DateTime.UtcNow);
-        await harness.UnitOfWork.Jobs.AddAsync(job);
-        await harness.UnitOfWork.SaveChangesAsync();
-        harness.Dispatcher.Dispatched.Clear(); // ignore the JobCreated event from setup
+        var (unitOfWork, jobs) = CreateUnitOfWork();
+        var job = Job.Create("x", DateTime.UtcNow); // Draft
+        jobs.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Job?>(job));
 
-        var handler = new ChangeJobStatusCommandHandler(
-            harness.UnitOfWork,
-            new FakeClock(DateTime.UtcNow),
-            harness.Mapper);
-
-        var result = await handler.Handle(
+        var result = await CreateHandler(unitOfWork).Handle(
             new ChangeJobStatusCommand(job.Id, JobStatus.Scheduled),
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Status.Should().Be("Scheduled");
-        harness.Dispatcher.Dispatched.OfType<JobStatusChangedEvent>().Should().ContainSingle();
+        await unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Handle_returns_Conflict_for_an_invalid_transition()
+    public async Task Handle_returns_Conflict_and_does_not_save_on_an_invalid_transition()
     {
-        using var harness = new ApplicationTestHarness();
-        var job = Job.Create("x", DateTime.UtcNow);
-        await harness.UnitOfWork.Jobs.AddAsync(job);
-        await harness.UnitOfWork.SaveChangesAsync();
+        var (unitOfWork, jobs) = CreateUnitOfWork();
+        var job = Job.Create("x", DateTime.UtcNow); // Draft -> Completed is not allowed
+        jobs.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Job?>(job));
 
-        var handler = new ChangeJobStatusCommandHandler(
-            harness.UnitOfWork,
-            new FakeClock(DateTime.UtcNow),
-            harness.Mapper);
-
-        // Draft -> Completed is not an allowed transition.
-        var result = await handler.Handle(
+        var result = await CreateHandler(unitOfWork).Handle(
             new ChangeJobStatusCommand(job.Id, JobStatus.Completed),
             CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
         result.Error.Type.Should().Be(ErrorType.Conflict);
+        await unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 }
