@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ModularMonolith.Application\ModularMonolith.Application.csproj" />
+    <ProjectReference Include="..\ModularMonolith.Infrastructure\ModularMonolith.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

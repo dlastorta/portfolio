@@ -4,6 +4,8 @@ A writeup of the backend architecture I worked in for two years on a large platf
 
 The point is to show how a team keeps a single deployable backend maintainable as it grows — and how cross-cutting concerns stop being copy-pasted into every handler and become composable infrastructure instead.
 
+> **This repository is a runnable reference implementation, not just an essay.** The patterns below are backed by a small but complete .NET solution you can clone, build, test, and run. See [Running it](#running-it) for commands and [The reference implementation](#the-reference-implementation) for the layout.
+
 ## Table of contents
 
 1. [Context: why a modular monolith](#1-context-why-a-modular-monolith)
@@ -16,6 +18,8 @@ The point is to show how a team keeps a single deployable backend maintainable a
 8. [Multi-tenancy and the migration runner](#8-multi-tenancy-and-the-migration-runner)
 9. [What worked](#9-what-worked)
 10. [What I'd do differently](#10-what-id-do-differently)
+11. [The reference implementation](#the-reference-implementation)
+12. [Running it](#running-it)
 
 ---
 
@@ -347,8 +351,62 @@ The principle worth carrying to any multi-tenant system: **make schema rollout a
 - **Watch the "Common" project.** A shared project is convenient and quietly becomes a dumping ground — DTOs, enums, interfaces, the occasional helper — until it's a soft dependency magnet that blurs the boundaries the architecture is supposed to enforce. I'd be stricter earlier about what's allowed to live there, and split it before it grew.
 - **Behavior order is load-bearing and should be documented as such.** Logging → Validation → Transaction is correct (you don't want to open a transaction for a request that's about to fail validation), but it's an invariant encoded only in registration order. I'd capture the *why* in a short architecture note next to the registration, because it's exactly the kind of thing a well-meaning change can silently break.
 - **Introduce the outbox earlier for the genuinely cross-process events.** In-process domain events are great until a side effect has to reliably reach another system. Retrofitting the outbox after the fact is more work than designing the few events that need it that way from the start.
-- **Guard the boundaries with a test, not just discipline.** Layer rules ("Domain references nothing outward") held because the team was disciplined, but discipline erodes. An architecture test (e.g. NetArchTest / ArchUnitNET asserting the dependency directions in CI) makes the rule enforce itself and turns a code-review judgment call into a build failure.
+- **Guard the boundaries with a test, not just discipline.** Layer rules ("Domain references nothing outward") held because the team was disciplined, but discipline erodes. An architecture test asserting the dependency directions in CI makes the rule enforce itself and turns a code-review judgment call into a build failure. *This repo implements exactly that* — see [`LayerDependencyTests`](tests/ModularMonolith.ArchitectureTests/LayerDependencyTests.cs), which uses NetArchTest to fail the build if the Domain ever takes a dependency outward.
 
 ---
 
-*Part of my [engineering portfolio](https://github.com/dlastorta). Companion writeup: [agentic-coding-workflow](https://github.com/dlastorta/agentic-coding-workflow). Contact: dlastorta@gmail.com · [linkedin.com/in/diegolastorta](https://linkedin.com/in/diegolastorta)*
+## The reference implementation
+
+The repository backs every pattern above with a small, complete solution. It's deliberately tiny in surface area and strict in structure — the interesting part is the *shape*, not the feature count.
+
+### Layout
+
+```
+src/
+  ModularMonolith.Domain          // entities, aggregates, domain events, Result<T>, ports — ZERO dependencies
+  ModularMonolith.Application     // CQRS handlers, validators, mapping, pipeline behaviors (MediatR, FluentValidation, AutoMapper)
+  ModularMonolith.Infrastructure  // EF Core (SQLite), repositories, unit of work, domain-event dispatch, system clock
+  ModularMonolith.WebApi          // minimal-API endpoints, Result -> HTTP mapping, DI composition root
+tests/
+  ModularMonolith.UnitTests          // domain logic, the validation behavior, and handlers (real DbContext on in-memory SQLite)
+  ModularMonolith.ArchitectureTests  // NetArchTest assertions that enforce the dependency rules
+```
+
+Two modules — **Jobs** (the rich one: create, change status with a state machine, query) and **Catalog** (a minimal second module) — share the same layering and slices. That's the "modular" in modular monolith: features are isolated by module, not entangled in one big service.
+
+### Design decisions worth calling out
+
+A reviewer reading this repo's working agreement ([`CLAUDE.md`](CLAUDE.md) and [`CODE-REVIEW-CHECKLIST.md`](CODE-REVIEW-CHECKLIST.md)) will look for these, so they're explicit:
+
+- **The Domain has zero outward dependencies — enforced, not just claimed.** Domain events are a Domain-owned `IDomainEvent` marker with no MediatR reference. The Application layer adapts them into MediatR notifications via `DomainEventNotification<T>`, and `LayerDependencyTests` fails the build if MediatR, EF Core, AutoMapper, or ASP.NET ever leak into Domain.
+- **The unit of work hides EF Core.** `IUnitOfWork` (in Domain) exposes `SaveChangesAsync` and `ExecuteInTransactionAsync` — but no `DbContext` and no `IDbContextTransaction`. The transaction primitive stays in Infrastructure.
+- **Transactions wrap commands only.** The `TransactionBehavior` checks an `ICommandBase` marker and skips queries — no point opening a transaction for a read.
+- **Behavior order is load-bearing** and lives in one place: `AddApplication` registers Logging → Validation → Transaction, in that order, with a comment explaining why.
+- **Database creation is `EnsureCreated` for demo convenience only.** The writeup's point about out-of-process migration runners (§8) is the real-world answer; a single-file SQLite `EnsureCreated` just keeps "clone and run" friction-free here.
+
+## Running it
+
+Requires the .NET SDK (the solution targets **.NET 8 LTS** for easy local runs; the production system it's modeled on ran on .NET 10).
+
+```bash
+# from the modular-monolith-patterns/ folder
+dotnet build ModularMonolith.sln                 # compile everything
+dotnet test  ModularMonolith.sln                 # run unit + architecture tests
+dotnet run --project src/ModularMonolith.WebApi  # start the API (Swagger UI at the root)
+```
+
+Once the API is running, the endpoints are:
+
+| Method | Route | What it does |
+|---|---|---|
+| `POST` | `/jobs` | Create a job (`{ "title": "..." }`) — returns 201, or 400 if the title is invalid |
+| `GET` | `/jobs` | List all jobs |
+| `GET` | `/jobs/{id}` | Get one job — 404 if missing |
+| `PUT` | `/jobs/{id}/status` | Change status (`{ "newStatus": "Scheduled" }`) — 409 on an illegal transition |
+| `GET` | `/crew-roles` | List the seeded Catalog reference data |
+
+Creating a job and changing its status will log the domain-event handlers firing — the `INotificationHandler<DomainEventNotification<...>>` implementations reacting after the save.
+
+---
+
+*Part of my [engineering portfolio](https://github.com/dlastorta). Companion writeup: [agentic-coding-workflow](https://github.com/dlastorta/agentic-coding-workflow). Contact: dlastorta@gmail.com · [linkedin.com/in/diegolast

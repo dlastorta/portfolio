@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Domain is intentionally dependency-free.
+    No NuGet packages. No project references.
+    The architecture tests enforce this (see tests/ModularMonolith.ArchitectureTests).
+  -->
+
+</Project>
