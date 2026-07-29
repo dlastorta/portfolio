@@ -18,6 +18,13 @@ project.lock.json
 .idea/
 .vscode/
 
+# Python (orchestrator reference script)
+__pycache__/
+*.pyc
+
+# Agentic workflow run artifacts
+agentic-coding-workflow/output/
+
 # SQLite database files created at runtime
 *.db
 *.db-shm

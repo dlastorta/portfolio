@@ -1,0 +1,26 @@
+{{ROLE}}
+
+1. {{TICKET_CONTEXT}}
+2. Read the implementation plan from: {{PLAN_PATH}}
+3. Implement the plan. Make all necessary code changes.
+   - The plan includes **## Implementation checklist** with `- [ ]` items. As you complete each chunk, update that section in **{{PLAN_PATH}}** by changing the matching line to `- [x]` (do this incrementally as you finish each chunk, not only at the end).
+   - Implement the planned tests in addition to functional code changes.
+   - Ensure test coverage includes happy path and negative testing identified in the plan.
+   - Apply white-box, black-box, and grey-box techniques as planned.
+   - Avoid duplicate or redundant test cases; keep coverage comprehensive and non-overlapping.
+   - If any planned test case cannot be automated, clearly explain why and provide the exact manual test steps.
+3a. **Build verification (mandatory before you finish this phase):**
+   - **.NET backend:** From the repo root that contains the main application `.sln`, run `dotnet restore`, then `dotnet build <that.sln> --no-restore`. If either command fails, fix errors and repeat until both succeed. Treat analyzers and StyleCop (e.g. SA####) the same as compile errors — CI fails on them.
+   - **Frontend (React/TS, `package.json`):** Run `npm ci` (or `npm i`), then `npm run build`, and fix until the build succeeds.
+   - Do not hand off to validation until the commands that apply to this ticket succeed (if a stack does not apply, say so in the summary).
+{{FEEDBACK}}
+4. Write a short implementation summary to: {{SUMMARY_PATH}} (what you changed and where).
+   Include:
+   - Code changes made
+   - Tests added/updated, grouped by happy path and negative testing
+   - Technique usage summary (white-box, black-box, grey-box)
+   - Confirmation that duplicates/redundant test cases were removed or avoided
+   - Test execution results (pass/fail) or why execution could not be performed in this environment
+   - Any gaps, risks, or deferred test coverage
+{{CURSOR_RULES}}
+{{EXTRA_INSTRUCTIONS}}

@@ -1,0 +1,41 @@
+{{ROLE}}
+For the test-planning portion of this phase, explicitly act as a QA analyst focused on test case design quality and coverage.
+
+1. {{TICKET_CONTEXT}}
+   When the ticket data includes a **Technical notes** section, use it to guide the implementation plan: architecture, approach, constraints, and implementation details must align with those notes.
+2. Research the codebase to understand how to implement the ticket.
+3. Write a clear implementation plan to this file: {{PLAN_PATH}}
+
+Do NOT implement yet. Only produce the plan.
+When defining test cases, use a QA analyst mindset: prioritize clear, risk-based, and non-redundant test design.
+The plan should list:
+- Ticket type and parent (if subtask), with the acceptance-criteria items identified and their source
+- Steps to implement
+- Files and layers to touch
+- How each acceptance criterion will be satisfied (scoped to this ticket's responsibility)
+- A comprehensive test strategy and concrete test cases that will be implemented, including:
+  - Happy path scenarios
+  - Negative testing scenarios (invalid input, error handling, permission/authorization failures, etc.)
+  - Test-design techniques: white-box, black-box, and grey-box
+- For each planned test case, specify:
+  - Test level/type (unit, integration, API, UI, etc.)
+  - What acceptance criterion it validates
+  - Which test-design technique it uses (white-box, black-box, or grey-box)
+  - Expected outcome
+  - Any required test data/setup
+  - Why it is unique (avoid duplicates/redundant overlap with other test cases)
+
+The plan must include a dedicated "Test Cases" section with clear subsections for:
+- Happy Path
+- Negative Testing
+
+You must also include a dedicated section **## Implementation checklist** with discrete work chunks the implement phase can complete one-by-one. Each line must use this exact checkbox pattern (one chunk per line):
+
+- [ ] Chunk: <short name> — <one-line scope>
+
+Break the implementation into meaningful chunks (e.g. by layer, feature slice, or test group). The implement agent will mark items `[x]` as each chunk is finished.
+
+Ensure the test set is minimal-but-sufficient: comprehensive coverage without duplicate or redundant cases.
+{{CURSOR_RULES}}
+{{EXTRA_INSTRUCTIONS}}
+{{REPLAN_CONTEXT}}
