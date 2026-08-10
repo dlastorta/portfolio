@@ -15,7 +15,7 @@ The workflow has four stages — Plan → Review → Implement → Validate. Thr
 
 ## Role files (`roles/`)
 
-Role definitions provide a specialized persona and tech-stack context per project type. The orchestrator auto-detects the project type and picks the matching file.
+Role definitions provide a specialized **persona and mindset** per project type. The orchestrator auto-detects the project type and picks the matching file.
 
 | Role file | Stage | Project type | Persona |
 |---|---|---|---|
@@ -26,6 +26,29 @@ Role definitions provide a specialized persona and tech-stack context per projec
 | `roles/generic.txt` | Any | Fallback | Senior Software Engineer (explores the stack first) |
 
 **Auto-detection:** a `.sln`/`.csproj` at the repo root → backend; a `package.json` → frontend; neither → generic.
+
+**Role files are deliberately not prescriptive about tech choices** — they set a persona and a right-sizing mindset, not a house-standard architecture. This keeps the workflow reusable across projects with different scale and different stacks. Tech-stack conventions live per repo (see next section).
+
+## Tech-stack per repo (`tech-stack.md` or `.cursor/rules/tech-stack.md`)
+
+Because different projects use different stacks (and even the same team uses different stacks across products), tech-stack conventions live in the **target repo**, not in this workflow. The role files instruct the agent to look for stack context in this order:
+
+1. **Existing code in the target repo** — if the repo already uses EF Core + xUnit + Serilog, the agent follows suit.
+2. **A `tech-stack.md` at the repo root** (or `.cursor/rules/tech-stack.md`) — an explicit declaration of the project's chosen libraries, patterns, and boundaries.
+3. **The ticket's Technical notes section** — for greenfield tickets, or when the ticket overrides project defaults.
+
+For a mature codebase, the existing code is usually enough. For greenfield or when you want to pin conventions explicitly (e.g., "we chose EF Core Dapper, not both"), add a short `tech-stack.md` at the repo root. Example:
+
+```markdown
+# tech-stack.md
+
+- Runtime: .NET 9, C# 12
+- Data: EF Core 9 (SQL Server), migrations checked in
+- API: Minimal APIs (not controllers)
+- Testing: xUnit + FluentAssertions + Testcontainers
+- Logging: Serilog with structured JSON
+- No MediatR, no Repository/UoW (thin service uses DbContext directly)
+```
 
 ## Placeholders
 
@@ -47,4 +70,8 @@ Unreplaced placeholders are stripped at runtime.
 
 ## Customizing
 
-Edit a template to change behavior for **all** runs (e.g. add a coverage requirement to `implement-prompt.txt`, or tighten `validate-prompt.txt`). Edit a role file to adjust stack details or persona. Use the orchestrator's `--extra` flag for a one-off addition without editing files.
+Edit a **template** to change behavior for all runs (e.g. add a coverage requirement to `implement-prompt.txt`, or tighten `validate-prompt.txt`).
+
+Edit a **role file** only to adjust persona or mindset — not to bake in a specific tech stack. Stack-specific conventions belong in the target repo (`tech-stack.md` or `.cursor/rules/`), so the role stays reusable across projects.
+
+Use the orchestrator's `--extra` flag for a one-off addition to any single run without editing files.

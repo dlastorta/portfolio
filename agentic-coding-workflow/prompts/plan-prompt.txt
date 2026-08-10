@@ -7,6 +7,9 @@ For the test-planning portion of this phase, explicitly act as a QA analyst focu
 3. Write a clear implementation plan to this file: {{PLAN_PATH}}
 
 Do NOT implement yet. Only produce the plan.
+
+**Right-size the plan to the ticket.** A small ticket gets a small plan; a large ticket gets a proportionally larger one. If an architectural pattern (CQRS, MediatR, Repository, generic abstractions, extra layers) would be gold-plating for this ticket's actual scope, do not propose it — even if it is common in the codebase. Prefer the plan a strict senior reviewer would approve without asking "does this really need all of that?".
+
 When defining test cases, use a QA analyst mindset: prioritize clear, risk-based, and non-redundant test design.
 The plan should list:
 - Ticket type and parent (if subtask), with the acceptance-criteria items identified and their source
