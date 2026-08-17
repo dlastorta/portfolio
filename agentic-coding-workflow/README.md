@@ -217,4 +217,22 @@ It needs no third-party Python packages — only whatever agent CLI you point it
 
 ---
 
+## 10. Case study: running it against a real greenfield build
+
+The workflow above was originally shaped against a large existing codebase. To pressure-test it against a different context, I ran it against a **greenfield** build — a fresh .NET 9 service (webhook ingest + REST query API + Basic Auth + three test tiers), spec-only framing, no existing code to reference. In parallel I built the same brief manually with the "product-first, not time-boxed PoC" framing, so I could compare what the two approaches produce against identical requirements.
+
+Full retrospective — what worked, what didn't, gaps discovered, and prioritized improvements — lives in [`RETROSPECTIVE_greenfield_backend_run.md`](RETROSPECTIVE_greenfield_backend_run.md). Sanitized: no client, no product names.
+
+Short version of what the exercise surfaced:
+
+- **`.cursor/rules/` was the leverage point.** A hand-written 13-rule `no-speculation.md` in the target repo pulled the agent back to minimal on every iteration where the default plan drifted toward enterprise ceremony. Per-repo explicit rules outperformed per-workflow implicit persona prompts.
+- **The role files needed refactoring.** The original `plan-be.txt` / `implement-be.txt` prescribed a specific enterprise stack (MediatR, GraphQL, JWT) as the .NET default — that biased every greenfield build regardless of ticket scope. Refactored to persona + right-sizing mindset only; tech-stack context moved to a per-repo file. Documented as a pattern in [`prompts/README.md`](prompts/README.md).
+- **The orchestrator had a Windows-compat bug.** `subprocess.run(shlex.split(cmd))` used POSIX-mode shlex, stripping backslashes from Windows paths. Fixed with `posix=(os.name != "nt")` in `run_agent.py`.
+- **Greenfield mode surfaced as an artifact.** [`templates/tech-stack.default.md`](templates/tech-stack.default.md) is an opt-in bootstrap template for new .NET services — sensible package defaults + an explicit "these are built into the framework, don't add a package" section + an explicit "NOT in these defaults" section that applies the same discipline as `.cursor/rules/no-speculation.md`, one layer up.
+- **Adversarial review has diminishing returns.** Five review passes against the parallel manual build. Each round found things, but by round 5 the findings were nits + doc-drift the earlier fix rounds had surfaced. Round 5's own advice: "the core is the right shape; more polish will feed the complexity objection." That was the signal to stop iterating and start defending — the workflow could bake a "review-done" heuristic in a future iteration.
+
+The exercise also produced improvements to this repo — the retrospective's table lists them ranked P0-P3. The important meta-lesson: running the workflow against a real build in a different context surfaced things the abstract description would never have. Dogfooding is not optional for a portfolio piece; it's the only honest way to know whether the workflow works in more than the one context it was born in.
+
+---
+
 *Part of my [engineering portfolio](https://github.com/dlastorta). Companion writeup: [modular-monolith-patterns](https://github.com/dlastorta/modular-monolith-patterns). Contact: dlastorta@gmail.com · [linkedin.com/in/diegolastorta](https://linkedin.com/in/diegolastorta)*
