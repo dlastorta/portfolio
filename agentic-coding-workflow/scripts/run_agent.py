@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -105,11 +106,18 @@ def run_stage(agent_cmd: str, prompt_text: str, repo: Path, prompt_path: Path) -
         "cursor-agent --cwd {repo} --prompt-file {prompt_file}"
     The agent is expected to read the prompt, edit files in `repo`, and write the
     output artifact (plan.md / summary / validation report) the prompt names.
+
+    Note on shlex.split posix mode: on Windows, POSIX-mode shlex (the default)
+    treats backslashes as escape characters and strips them from paths — a path
+    like C:\\Users\\dare2\\... becomes C:Usersdare2... and the target CLI fails
+    to find the prompt file. Setting posix=False on Windows preserves backslash
+    literals while still splitting on whitespace and respecting quoted arguments.
+    On POSIX shells, keep default behavior.
     """
     prompt_path.write_text(prompt_text, encoding="utf-8")
     cmd = agent_cmd.format(prompt_file=str(prompt_path), repo=str(repo))
     print(f"  $ {cmd}")
-    completed = subprocess.run(shlex.split(cmd), cwd=str(repo))
+    completed = subprocess.run(shlex.split(cmd, posix=(os.name != "nt")), cwd=str(repo))
     return completed.returncode
 
 
