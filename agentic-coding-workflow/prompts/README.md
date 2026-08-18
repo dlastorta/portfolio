@@ -63,10 +63,30 @@ For a mature codebase, the existing code is usually enough. For greenfield or wh
 | `{{FEEDBACK}}` | Previous validation feedback (empty on the first implement iteration) |
 | `{{ITERATION}}` | Current implement/validate iteration number |
 | `{{CURSOR_RULES}}` | The repo's auto-detected `.cursor/rules/` block (empty if none) |
+| `{{PROJECT_CONTEXT_HINT}}` | Greenfield hint (only when the repo has fewer than 3 real source files — see [greenfield mode](#greenfield-mode) below). Empty on repos with existing code. |
 | `{{EXTRA_INSTRUCTIONS}}` | One-off instructions passed on the command line (empty if none) |
 | `{{REPLAN_CONTEXT}}` | Re-plan notes when a human sends the plan back for revision (empty otherwise) |
 
 Unreplaced placeholders are stripped at runtime.
+
+## Greenfield mode
+
+The orchestrator auto-detects greenfield repos (fewer than 3 real source files, excluding tool caches and build output) and injects an explicit hint into the Plan prompt via `{{PROJECT_CONTEXT_HINT}}`. The hint tells the agent:
+
+- Do NOT try to "research the codebase" — there is no code to read.
+- Context sources, in priority order: (1) `tech-stack.md` at repo root, (2) `.cursor/rules/*` files, (3) ticket Technical notes.
+- If none of the above declare a library for a category the plan needs, propose it in the plan and mark it as "needs reviewer decision" — do NOT pick silently.
+
+On repos with existing code, the placeholder is empty and the default "research the codebase" instruction applies as normal.
+
+You can see which mode the run is in from the orchestrator's first line of output:
+
+```
+Ticket ABC-123 | project type: be | context: greenfield | repo: /path/to/repo
+Ticket ABC-123 | project type: be | context: existing codebase | repo: /path/to/repo
+```
+
+The detection heuristic is defensive — three source files is a low bar; the goal is to distinguish "actual new project" from "repo with some real code". If you disagree with the automatic classification for a specific run, `--extra` gives you a channel to override the assumption in the prompt.
 
 ## Customizing
 

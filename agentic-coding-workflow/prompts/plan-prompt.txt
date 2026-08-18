@@ -3,7 +3,8 @@ For the test-planning portion of this phase, explicitly act as a QA analyst focu
 
 1. {{TICKET_CONTEXT}}
    When the ticket data includes a **Technical notes** section, use it to guide the implementation plan: architecture, approach, constraints, and implementation details must align with those notes.
-2. Research the codebase to understand how to implement the ticket.
+{{PROJECT_CONTEXT_HINT}}
+2. Research the codebase to understand how to implement the ticket. On a greenfield build (see project context above) skip this step — there is no code to read; use the sources listed above instead.
 3. Write a clear implementation plan to this file: {{PLAN_PATH}}
 
 Do NOT implement yet. Only produce the plan.

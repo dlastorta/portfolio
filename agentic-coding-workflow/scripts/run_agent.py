@@ -52,6 +52,72 @@ def detect_project_type(repo: Path) -> str:
     return "generic"
 
 
+# --------------------------------------------------------------------------- #
+# Greenfield detection
+# --------------------------------------------------------------------------- #
+# A "greenfield" repo has essentially no source code yet — the target of a
+# from-scratch build rather than a feature-add to an existing codebase. The
+# distinction matters because the Plan stage's default posture is "research
+# the codebase to understand X"; on a greenfield repo there is no codebase,
+# and the agent either fabricates context (bad) or falls back to role-file
+# defaults (also bad when we've deliberately made roles minimal).
+#
+# Heuristic: count source files under the repo, excluding output artifacts,
+# tool caches, and the workflow's own scratch dirs. Threshold 3 — a repo with
+# fewer than three source files is functionally a bootstrap target.
+_GREENFIELD_EXCLUDED_DIRS = {
+    ".git", ".cursor", "output", "bin", "obj", "node_modules",
+    ".vs", ".idea", "TestResults", "coveragereport", ".venv", "__pycache__",
+}
+_GREENFIELD_SOURCE_EXTENSIONS = {
+    ".cs", ".vb", ".fs",         # .NET
+    ".ts", ".tsx", ".js", ".jsx", ".mjs",  # JS/TS
+    ".py",                        # Python
+    ".go", ".java", ".kt", ".scala",
+    ".rs", ".rb", ".php", ".swift",
+}
+_GREENFIELD_THRESHOLD = 3
+
+
+def detect_greenfield(repo: Path) -> bool:
+    """True if the repo has fewer than THRESHOLD real source files (excluding tool caches)."""
+    count = 0
+    for path in repo.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix not in _GREENFIELD_SOURCE_EXTENSIONS:
+            continue
+        if any(part in _GREENFIELD_EXCLUDED_DIRS for part in path.parts):
+            continue
+        count += 1
+        if count >= _GREENFIELD_THRESHOLD:
+            return False
+    return True
+
+
+def project_context_hint(is_greenfield: bool) -> str:
+    """Explicit instruction injected into the Plan prompt when the repo is greenfield.
+
+    Empty string when the repo has existing code — the default plan-role instruction
+    ("research the codebase to understand X") already covers that case.
+    """
+    if not is_greenfield:
+        return ""
+    return (
+        "\n\n**Project context: GREENFIELD build.** The target repo has fewer than "
+        f"{_GREENFIELD_THRESHOLD} source files — there is no existing codebase to "
+        "research for conventions or patterns. Do NOT invent conventions or fall "
+        "back to role-file defaults. Your context sources, in priority order, are: "
+        "(1) `tech-stack.md` at repo root (or `.cursor/rules/tech-stack.md`), "
+        "(2) `.cursor/rules/*` files, "
+        "(3) the ticket's Technical notes section. "
+        "If none of these declare a library for a category your plan needs, "
+        "propose the library in the plan and mark it explicitly as 'needs "
+        "reviewer decision' — do not pick silently. The Review gate exists so "
+        "these decisions get human approval before implementation.\n"
+    )
+
+
 def load_role(stage: str, project_type: str) -> str:
     """stage is 'plan' or 'implement'; validate uses a fixed QA persona in its template."""
     candidate = PROMPTS_DIR / "roles" / f"{stage}-{project_type}.txt"
@@ -173,7 +239,10 @@ def main() -> int:
 
     project_type = detect_project_type(repo) if args.project_type == "auto" else args.project_type
     cursor_rules = read_cursor_rules(repo)
-    print(f"Ticket {args.ticket} | project type: {project_type} | repo: {repo}")
+    is_greenfield = detect_greenfield(repo)
+    greenfield_hint = project_context_hint(is_greenfield)
+    greenfield_label = "greenfield" if is_greenfield else "existing codebase"
+    print(f"Ticket {args.ticket} | project type: {project_type} | context: {greenfield_label} | repo: {repo}")
 
     plan_path = out_dir / "plan.md"
     summary_path = out_dir / "implementation-summary.md"
@@ -196,6 +265,7 @@ def main() -> int:
         "PLAN_PATH": str(plan_path),
         "SUMMARY_PATH": str(summary_path),
         "CURSOR_RULES": cursor_rules,
+        "PROJECT_CONTEXT_HINT": greenfield_hint,
         "EXTRA_INSTRUCTIONS": args.extra,
     }
 
