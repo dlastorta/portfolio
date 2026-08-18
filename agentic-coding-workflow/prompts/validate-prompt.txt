@@ -25,7 +25,14 @@ When validating, also check that the implementation follows these project conven
    - Negative testing
    Confirm tests are implemented (or justified if manual only), map to relevant acceptance criteria, and use an appropriate mix of white-box, black-box, and grey-box techniques.
    Also verify duplicate/redundant test cases are avoided.
-7. Write your report to: {{VALIDATION_PATH}}
+7. **Exception handling review.** Walk every `catch` block, global exception handler, middleware, and framework exception filter in the changed code. For each, verify:
+   - **Client errors surface as 4xx, not 5xx.** Exceptions that represent bad input from the caller (`BadHttpRequestException`, `JsonException` from body deserialization, `ArgumentException` on request parameters, model-binding failures, validation exceptions) must produce a 4xx response — typically 400 for malformed input, 401 for auth, 403 for role, 404 for not-found, 409 for conflict. A global handler that catches these and returns 500 is a real defect: it misclassifies a caller mistake as a server bug, misleads observability, and pollutes on-call alerts.
+   - **Cancellation is distinguished from server errors.** `OperationCanceledException` / `TaskCanceledException` triggered by client disconnect or request timeout is NOT a 500 — it is either 499 (nginx convention) or a silent close, and MUST NOT be retried by any retry policy (Polly, EF Core execution strategies, etc.).
+   - **Transient vs permanent persistence failures are distinguished.** A generic `DbUpdateException` catch that treats every DB failure as transient will retry constraint violations (PK, FK, CHECK, NOT NULL) — which cannot succeed on retry — and mask them as timeouts. Verify the code classifies by SQL error number (or equivalent for the DB engine) and only retries genuinely transient failures.
+   - **Unhandled exceptions have a documented catch-all.** There should be exactly one final catch-all (global exception handler / middleware) that returns 500 with a support-actionable payload (correlation id, batch/request id). Multiple overlapping catch-alls are a smell.
+   - **No exception is swallowed silently.** A `catch { }` with no logging is a defect unless the enclosing method's contract explicitly documents it (e.g. `TryGet…` patterns).
+   For each finding, cite the file / line and the specific exception type + wrong status code.
+8. Write your report to: {{VALIDATION_PATH}}
    The report must include acceptance-criteria status and a dedicated test coverage section.
 
 Use this exact format:
@@ -83,6 +90,17 @@ Use this exact format:
 - Evidence: <why the test set is non-duplicative and non-redundant>
 - Gaps: <duplicate/redundant tests that should be removed or merged>
 
+## Exception Handling Review
+
+- Status: <PASS | FAIL>
+- Handlers / catch blocks reviewed: <list files + line ranges>
+- Client errors surface as 4xx (not 5xx): <PASS | FAIL — with evidence or the specific misclassification>
+- Cancellation distinguished from server errors: <PASS | FAIL | N/A>
+- Transient vs permanent persistence failures distinguished: <PASS | FAIL | N/A>
+- Single documented catch-all for unhandled exceptions: <PASS | FAIL>
+- No silent exception swallowing: <PASS | FAIL>
+- Specific findings: <bullet list of files / lines / exception type / wrong status code, if any>
+
 ## Summary
 
 X of Y in-scope acceptance criteria passed. Z items marked N/A (out of scope).
@@ -95,6 +113,8 @@ Test coverage verdict:
 - Test design techniques (white-box/black-box/grey-box): <PASS | FAIL>
 - Redundancy check (no duplicates/redundant cases): <PASS | FAIL>
 
+Exception handling verdict: <PASS | FAIL>
+
 OVERALL VERDICT: PASS
 
 (or)
@@ -105,4 +125,5 @@ Items to address:
 - <bullet list of failed acceptance-criteria items and what to fix>
 - <bullet list of plan deviations or missing planned items to address>
 - <bullet list of missing/insufficient test coverage by category and what to add>
+- <bullet list of exception-handling defects: file / line / exception type / current status code / expected status code>
 {{EXTRA_INSTRUCTIONS}}
