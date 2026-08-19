@@ -130,7 +130,7 @@ What it handles:
 - **Role selection.** It auto-detects project type from the repo (a `.sln`/`.csproj` at the root means backend; a `package.json` means frontend) and loads the matching [role persona](prompts/roles) — "senior backend architect" for planning a .NET service, "senior frontend engineer" for implementing React, and so on.
 - **The Review gate.** After Plan, the orchestrator pauses and presents `plan.md`. A human approves it or sends it back with notes; a send-back re-runs Plan with those notes injected via `{{REPLAN_CONTEXT}}`. Nothing is implemented until a plan is approved.
 - **The iteration loop.** Implement → Validate, carrying the previous feedback forward, until the validator writes `OVERALL VERDICT: PASS` or a cap is hit.
-- **Artifacts and metrics for every run.** Each run produces a `plan.md`, an `implementation-summary.md`, one `validation-N.md` per round, and a metrics file recording wall-clock time and per-stage durations. That last part matters more than it sounds: it turned "AI is helping, I think" into measured data about where time actually went.
+- **Artifacts and metrics for every run.** Each run produces a `plan.md`, an `implementation-summary.md`, one `validation-N.md` per round, a per-stage `metrics.json` (wall-clock, files touched, LOC delta), and a `run-summary.json` aggregating those totals plus verdict (`PASS`, `FAIL_AFTER_MAX_ITERATIONS`, `PLAN_FAILED`, `ABORTED_AT_REVIEW`, etc.), iterations-until-pass, and `.cursor/rules/` bytes injected. That last part matters more than it sounds: it turns "AI is helping, I think" into measured data about where time and code delta actually went — and gives you concrete numbers to write about the workflow later.
 
 ```mermaid
 flowchart TD
@@ -211,7 +211,7 @@ python scripts/run_agent.py ABC-123 \
     --agent-cmd "cursor-agent --cwd {repo} --prompt-file {prompt_file}"
 ```
 
-Flow: it detects the project type and runs **Plan**, then the **Review** gate pauses for you to approve `output/ABC-123/plan.md` or send it back with notes (which re-runs Plan with your notes injected). Once a plan is approved, it loops **Implement → Validate** (carrying feedback forward) until the validator writes `OVERALL VERDICT: PASS` or `--max-iterations` is reached. Timing for every stage lands in `output/ABC-123/metrics.json`.
+Flow: it detects the project type and whether the repo is greenfield, then runs **Plan**. The **Review** gate pauses for you to approve `output/ABC-123/plan.md` or send it back with notes (which re-runs Plan with your notes injected). Once a plan is approved, it loops **Implement → Validate** (carrying feedback forward) until the validator writes `OVERALL VERDICT: PASS` or `--max-iterations` is reached. Per-stage metrics (wall-clock, files touched, LOC delta) land in `output/ABC-123/metrics.json`; an aggregated `run-summary.json` is written at every exit point (PASS, FAIL, stage failure, or human abort) with totals + verdict + iterations-until-pass + `.cursor/rules/` size.
 
 It needs no third-party Python packages — only whatever agent CLI you point it at. This is a distilled reference, not the production system: it deliberately omits issue-tracker integration, cloud execution, and automated branch publishing so the workflow itself is easy to read and adapt.
 

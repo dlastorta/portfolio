@@ -127,6 +127,91 @@ def load_role(stage: str, project_type: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Filesystem snapshots for per-stage file / LOC delta metrics
+# --------------------------------------------------------------------------- #
+# `metrics.json` used to capture only wall-clock duration per stage. Snapshots
+# taken before/after each stage let us also report which files changed and how
+# many lines were added/removed — useful for calibrating future runs and for
+# writing about the workflow with concrete numbers rather than vibes.
+#
+# We exclude `output/` from snapshots because that's where the workflow writes
+# its own artifacts (plan.md, implementation-summary.md, validation-N.md). A
+# stage that produces only workflow artifacts (Plan, Validate) should legitimately
+# show 0 files touched — that's a useful signal, not noise.
+_SNAPSHOT_EXCLUDED_DIRS = _GREENFIELD_EXCLUDED_DIRS | {"output"}
+_LOC_EXTENSIONS = _GREENFIELD_SOURCE_EXTENSIONS | {
+    ".md", ".yaml", ".yml", ".json", ".xml",
+    ".sql", ".css", ".html", ".sh", ".toml", ".ini",
+    ".csproj", ".sln", ".props", ".targets",
+}
+
+
+def _snapshot_repo(repo: Path) -> dict:
+    """Map {relative_path: (size_bytes, mtime_ns, line_count_or_none)} for the repo.
+
+    line_count is None for binary / non-source files — we only read text files we
+    care about counting lines for. Excludes tool caches and the workflow's own
+    output/ dir.
+    """
+    snapshot: dict = {}
+    for path in repo.rglob("*"):
+        if not path.is_file():
+            continue
+        rel_parts = path.relative_to(repo).parts
+        if any(part in _SNAPSHOT_EXCLUDED_DIRS for part in rel_parts):
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        line_count = None
+        if path.suffix.lower() in _LOC_EXTENSIONS:
+            try:
+                with path.open("r", encoding="utf-8", errors="ignore") as fh:
+                    line_count = sum(1 for _ in fh)
+            except OSError:
+                line_count = None
+        snapshot[str(path.relative_to(repo))] = (stat.st_size, stat.st_mtime_ns, line_count)
+    return snapshot
+
+
+def _diff_snapshots(before: dict, after: dict) -> dict:
+    """Compute created / modified / deleted files and net LOC delta between two snapshots."""
+    before_keys = set(before)
+    after_keys = set(after)
+    created = sorted(after_keys - before_keys)
+    deleted = sorted(before_keys - after_keys)
+    common = before_keys & after_keys
+    # A file is "modified" if size or mtime changed. mtime alone catches
+    # touched-without-size-change; size catches content changes even if mtime
+    # is somehow preserved (some editors preserve mtime on save).
+    modified = sorted(k for k in common if before[k][:2] != after[k][:2])
+
+    loc_delta = 0
+    for k in created:
+        _, _, lc = after[k]
+        if lc is not None:
+            loc_delta += lc
+    for k in deleted:
+        _, _, lc = before[k]
+        if lc is not None:
+            loc_delta -= lc
+    for k in modified:
+        _, _, lc_after = after[k]
+        _, _, lc_before = before[k]
+        if lc_after is not None and lc_before is not None:
+            loc_delta += (lc_after - lc_before)
+
+    return {
+        "files_touched": len(created) + len(modified) + len(deleted),
+        "files_created": created,
+        "files_modified": modified,
+        "files_deleted": deleted,
+        "loc_delta": loc_delta,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # .cursor/rules injection - the codebase conventions, fed into every stage
 # --------------------------------------------------------------------------- #
 def read_cursor_rules(repo: Path) -> str:
@@ -198,9 +283,12 @@ def record_metric(metrics_path: Path, entry: dict) -> None:
     metrics_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def timed(metrics_path: Path, stage: str, iteration: int, fn) -> int:
+def timed(metrics_path: Path, stage: str, iteration: int, repo: Path, fn) -> int:
     start = time.monotonic()
+    before = _snapshot_repo(repo)
     code = fn()
+    after = _snapshot_repo(repo)
+    diff = _diff_snapshots(before, after)
     record_metric(
         metrics_path,
         {
@@ -209,9 +297,57 @@ def timed(metrics_path: Path, stage: str, iteration: int, fn) -> int:
             "seconds": round(time.monotonic() - start, 1),
             "ok": code == 0,
             "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            **diff,
         },
     )
     return code
+
+
+def write_run_summary(
+    out_dir: Path,
+    ticket: str,
+    project_type: str,
+    context_label: str,
+    cursor_rules_bytes: int,
+    verdict: str,
+    iterations_until_pass: int | None,
+    started_at: str,
+) -> None:
+    """Emit run-summary.json aggregating per-stage metrics into portfolio-friendly totals.
+
+    Called at every exit point (PASS, FAIL after max iterations, plan/implement/validate
+    stage failure, human abort at Review). Idempotent — safe to overwrite.
+    """
+    metrics_path = out_dir / "metrics.json"
+    summary_path = out_dir / "run-summary.json"
+    entries: list = []
+    if metrics_path.exists():
+        try:
+            entries = json.loads(metrics_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            entries = []
+
+    per_stage_seconds: dict = {}
+    for e in entries:
+        stage = e.get("stage", "unknown")
+        per_stage_seconds[stage] = round(per_stage_seconds.get(stage, 0.0) + e.get("seconds", 0.0), 1)
+
+    summary = {
+        "ticket": ticket,
+        "started_at": started_at,
+        "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "project_type": project_type,
+        "context": context_label,
+        "cursor_rules_bytes": cursor_rules_bytes,
+        "verdict": verdict,
+        "iterations_until_pass": iterations_until_pass,
+        "stages_run": len(entries),
+        "total_seconds": round(sum(e.get("seconds", 0.0) for e in entries), 1),
+        "per_stage_seconds": per_stage_seconds,
+        "total_files_touched": sum(e.get("files_touched", 0) for e in entries),
+        "total_loc_delta": sum(e.get("loc_delta", 0) for e in entries),
+    }
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #
@@ -242,7 +378,21 @@ def main() -> int:
     is_greenfield = detect_greenfield(repo)
     greenfield_hint = project_context_hint(is_greenfield)
     greenfield_label = "greenfield" if is_greenfield else "existing codebase"
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     print(f"Ticket {args.ticket} | project type: {project_type} | context: {greenfield_label} | repo: {repo}")
+
+    def emit_summary(verdict: str, iterations_until_pass: int | None = None) -> None:
+        """Write run-summary.json — called from every exit point."""
+        write_run_summary(
+            out_dir=out_dir,
+            ticket=args.ticket,
+            project_type=project_type,
+            context_label=greenfield_label,
+            cursor_rules_bytes=len(cursor_rules.encode("utf-8")),
+            verdict=verdict,
+            iterations_until_pass=iterations_until_pass,
+            started_at=started_at,
+        )
 
     plan_path = out_dir / "plan.md"
     summary_path = out_dir / "implementation-summary.md"
@@ -284,10 +434,11 @@ def main() -> int:
             {**base, "ROLE": load_role("plan", project_type), "REPLAN_CONTEXT": replan_context},
         )
         if timed(
-            metrics_path, "plan", plan_round,
+            metrics_path, "plan", plan_round, repo,
             lambda: run_stage(args.agent_cmd, plan_prompt, repo, prompt_scratch),
         ) != 0:
             print("Plan stage failed.")
+            emit_summary(verdict="PLAN_FAILED")
             return 1
 
         # Review: the human approval gate.
@@ -299,6 +450,7 @@ def main() -> int:
             break
         if decision in {"q", "quit", "n", "no"}:
             print("Aborted at review.")
+            emit_summary(verdict="ABORTED_AT_REVIEW")
             return 1
         notes = input("Revision notes for the re-plan: ").strip()
         replan_context = (
@@ -320,10 +472,11 @@ def main() -> int:
             },
         )
         if timed(
-            metrics_path, "implement", iteration,
+            metrics_path, "implement", iteration, repo,
             lambda: run_stage(args.agent_cmd, implement_prompt, repo, prompt_scratch),
         ) != 0:
             print("Implement stage failed.")
+            emit_summary(verdict="IMPLEMENT_FAILED")
             return 1
 
         print(f"\n== VALIDATE (iteration {iteration}) ==")
@@ -333,15 +486,17 @@ def main() -> int:
             {**base, "VALIDATION_PATH": str(validation_path), "ITERATION": str(iteration)},
         )
         if timed(
-            metrics_path, "validate", iteration,
+            metrics_path, "validate", iteration, repo,
             lambda: run_stage(args.agent_cmd, validate_prompt, repo, prompt_scratch),
         ) != 0:
             print("Validate stage failed.")
+            emit_summary(verdict="VALIDATE_FAILED")
             return 1
 
         verdict = validation_path.read_text(encoding="utf-8") if validation_path.exists() else ""
         if "OVERALL VERDICT: PASS" in verdict:
             print(f"\nPASS on iteration {iteration}. Hand off to a human for final review + merge.")
+            emit_summary(verdict="PASS", iterations_until_pass=iteration)
             return 0
 
         print(f"FAIL on iteration {iteration}; feeding the report back into implement.")
@@ -351,6 +506,7 @@ def main() -> int:
         )
 
     print(f"\nStill failing after {args.max_iterations} iterations. Needs a human.")
+    emit_summary(verdict="FAIL_AFTER_MAX_ITERATIONS")
     return 1
 
 
