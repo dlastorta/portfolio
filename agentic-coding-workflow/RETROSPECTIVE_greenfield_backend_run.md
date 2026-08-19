@@ -130,7 +130,7 @@ Priority: **P0** = fix before next run · **P1** = strongly worth doing · **P2*
 | 1 | `shlex.split(cmd, posix=(os.name != "nt"))` in `run_agent.py` | P0 | 5 min | orchestrator | ✅ done |
 | 2 | `PATTERNS.md` documenting the per-repo `tech-stack.md` + `.cursor/rules/no-speculation.md` patterns (+ 2 related doc patterns) | P1 | 30 min | docs | ✅ done |
 | 3 | Greenfield mode: role variant or greenfield-detection logic | P1 | 1-2 h | prompts + orchestrator | ✅ done |
-| 4 | Validate stage: "spec item → code + test" matrix output | P1 | 1-2 h | prompt | |
+| 4 | Validate stage: "spec item → code + test" matrix output | P1 | 1-2 h | prompt | ✅ done |
 | 5 | Case-study section in workflow README linking this retrospective | P1 | 20 min | docs | ✅ done |
 | 6 | Validate stage: "declared vs used" package/tool audit | P2 | 1-2 h | prompt | |
 | 7 | Metrics ampliadas: LOC, files touched, rules-injected size | P2 | 30 min | orchestrator | |

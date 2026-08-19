@@ -15,6 +15,13 @@ When validating, also check that the implementation follows these project conven
      but use the parent ticket's acceptance criteria as the full reference. Mark an item as N/A if it
      clearly belongs to a different subtask and is not in scope here.
    - If this ticket is a Task or Bug: validate all acceptance-criteria items directly.
+4b. **AC coverage matrix — cite code AND test for every acceptance criterion.** For each in-scope AC, locate the specific code file/line range that implements the behavior AND the specific test file/method that verifies it. This is a stricter check than the PASS/FAIL above: an AC can be "PASS" on paper (behavior seems present) yet fail the matrix if either the code or the test cannot be pinpointed. A PASS without citations is not a PASS — it is an untested claim. Rules:
+   - **Code must be citable to file + line range.** "Handler somewhere" does not count; `src/Foo/BarHandler.cs:34-52` counts.
+   - **Test must be citable to file + method name.** "Tests cover this" does not count; `tests/BarTests.cs:ShouldFooWhenBar` counts.
+   - **Integration test citations beat unit test citations** when the AC describes end-to-end behavior; unit test citations beat integration test citations when the AC describes pure domain logic. Cite the tier that actually catches the bug the AC is protecting against.
+   - **An AC with code but no test = test gap.** Real defect — the behavior exists but a regression would ship silently.
+   - **An AC with test but no code = spec gap OR dead test.** Investigate: is the test asserting on something that isn't actually built, or is the AC satisfied by framework behavior (e.g. framework returns 401 automatically) that has no dedicated code?
+   - **An AC with neither = not implemented.** The PASS/FAIL above should have caught this; the matrix is the second net.
 5. Validate that the implementation follows the approved plan:
    - Were all planned implementation steps carried out?
    - Were the planned files and layers touched as specified?
@@ -58,6 +65,22 @@ Use this exact format:
   Reason why this AC belongs to a different subtask.
 
 (repeat for every acceptance-criteria item)
+
+## AC Coverage Matrix
+
+For each in-scope AC, cite the specific code location that implements it and the specific test that verifies it. An AC with either column empty is a gap even if the checklist above says PASS — a PASS without evidence is not a PASS.
+
+| AC # | Title (short) | Code (file:line) | Test (file:method) | Status |
+|------|---------------|------------------|--------------------|--------|
+| 1 | <short> | `src/.../Foo.cs:34-52` | `tests/.../FooTests.cs:ShouldFooWhenBar` | ✅ covered |
+| 2 | <short> | `src/.../Baz.cs:12-30` | (none — gap) | ❌ test gap |
+| 3 | <short> | (none — gap) | (none) | ❌ not implemented |
+| 4 | <short> | N/A (framework: ASP.NET returns 401 automatically) | `tests/.../AuthTests.cs:ReturnsUnauthorizedWhenNoHeader` | ✅ covered (framework + test) |
+| 5 | <short> | N/A (out of scope for this sub-task) | N/A | — |
+
+Gap summary: <N> ACs have a coverage gap. Details in Items to address below.
+
+Preferred tier per AC: end-to-end behavior → integration tests; pure domain logic → unit tests. Cite the tier that actually catches the bug the AC protects against.
 
 ## Plan Adherence
 
@@ -105,6 +128,8 @@ Use this exact format:
 
 X of Y in-scope acceptance criteria passed. Z items marked N/A (out of scope).
 
+AC coverage matrix verdict: <PASS | FAIL — with count of ACs missing code and/or test citations>
+
 Plan adherence verdict: <PASS | FAIL>
 
 Test coverage verdict:
@@ -123,6 +148,7 @@ OVERALL VERDICT: FAIL
 
 Items to address:
 - <bullet list of failed acceptance-criteria items and what to fix>
+- <bullet list of AC coverage-matrix gaps: AC # / missing code citation / missing test citation / what to add>
 - <bullet list of plan deviations or missing planned items to address>
 - <bullet list of missing/insufficient test coverage by category and what to add>
 - <bullet list of exception-handling defects: file / line / exception type / current status code / expected status code>
