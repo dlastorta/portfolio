@@ -62,6 +62,7 @@ For a mature codebase, the existing code is usually enough. For greenfield or wh
 | `{{VALIDATION_PATH}}` | Absolute path to the current `output/<ticket>/validation-N.md` |
 | `{{FEEDBACK}}` | Previous validation feedback (empty on the first implement iteration) |
 | `{{ITERATION}}` | Current implement/validate iteration number |
+| `{{PRIOR_VALIDATION}}` | Full text of the previous iteration's validation report — empty on iteration 1; populated on iteration 2+ so the validator can compare findings and declare `STAGNATED` when the implement stage is not converging (see validate-prompt.txt step 7c). |
 | `{{CURSOR_RULES}}` | The repo's auto-detected `.cursor/rules/` block (empty if none) |
 | `{{PROJECT_CONTEXT_HINT}}` | Greenfield hint (only when the repo has fewer than 3 real source files — see [greenfield mode](#greenfield-mode) below). Empty on repos with existing code. |
 | `{{EXTRA_INSTRUCTIONS}}` | One-off instructions passed on the command line (empty if none) |

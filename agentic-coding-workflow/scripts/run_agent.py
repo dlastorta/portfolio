@@ -461,6 +461,7 @@ def main() -> int:
 
     # ---- Stages 3 & 4: Implement <-> Validate loop ---------------------------
     feedback = ""
+    prior_validation_content = ""  # populated iteration 2+ to enable the STAGNATED progress check per validate-prompt.txt step 7c
     for iteration in range(1, args.max_iterations + 1):
         print(f"\n== IMPLEMENT (iteration {iteration}) ==")
         implement_prompt = render(
@@ -483,7 +484,15 @@ def main() -> int:
         validation_path = out_dir / f"validation-{iteration}.md"
         validate_prompt = render(
             load_template("validate-prompt.txt"),
-            {**base, "VALIDATION_PATH": str(validation_path), "ITERATION": str(iteration)},
+            {
+                **base,
+                "VALIDATION_PATH": str(validation_path),
+                "ITERATION": str(iteration),
+                # Empty on iteration 1; populated 2+ so the validator can compare findings vs
+                # the prior iteration and declare STAGNATED when nothing new is being found —
+                # see validate-prompt.txt step 7c.
+                "PRIOR_VALIDATION": prior_validation_content,
+            },
         )
         if timed(
             metrics_path, "validate", iteration, repo,
@@ -498,12 +507,25 @@ def main() -> int:
             print(f"\nPASS on iteration {iteration}. Hand off to a human for final review + merge.")
             emit_summary(verdict="PASS", iterations_until_pass=iteration)
             return 0
+        if "OVERALL VERDICT: STAGNATED" in verdict:
+            # No new + no fixed substantive findings vs prior iteration. Continuing costs cycles
+            # without producing new signal — hand off to a human for the accept-as-is / escalate /
+            # intervene decision. Distinct exit code from PASS and from FAIL_AFTER_MAX_ITERATIONS.
+            print(
+                f"\nSTAGNATED on iteration {iteration}: no new substantive findings vs iteration "
+                f"{iteration - 1}. Handing off to human — accept as-is, escalate, or intervene manually."
+            )
+            emit_summary(verdict=f"STAGNATED_AFTER_ITERATION_{iteration}")
+            return 3
 
         print(f"FAIL on iteration {iteration}; feeding the report back into implement.")
         feedback = (
             "The previous implementation did not pass validation. Address every item in this report:\n\n"
             + verdict
         )
+        # Retain this iteration's report as the "prior" for the next validate iteration's
+        # STAGNATED comparison (step 7c).
+        prior_validation_content = verdict
 
     print(f"\nStill failing after {args.max_iterations} iterations. Needs a human.")
     emit_summary(verdict="FAIL_AFTER_MAX_ITERATIONS")

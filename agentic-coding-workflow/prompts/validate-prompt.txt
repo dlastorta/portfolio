@@ -32,6 +32,12 @@ When validating, also check that the implementation follows these project conven
    - Negative testing
    Confirm tests are implemented (or justified if manual only), map to relevant acceptance criteria, and use an appropriate mix of white-box, black-box, and grey-box techniques.
    Also verify duplicate/redundant test cases are avoided.
+6b. **Declared-vs-used audit — every declared dependency, tool, and config value must have a real call site.** Walk the following surfaces in the target repo and verify each declaration is actually referenced by production or test code. Declarations that no code reads are dead weight — worse when documentation cites them as active, because then the drift becomes a lie the reader has to unravel.
+   - **NuGet / npm / pip / gem packages** (`.csproj`, `Directory.Packages.props`, `package.json`, `requirements.txt`, `Gemfile`, etc.): for each declared package, grep for at least one non-trivial import / `using` / `require` / call site. A package with zero references is dead. A package referenced only by a using directive that has no method call, class instantiation, or generic parameter is also dead — it satisfies the compiler but nothing more.
+   - **Config keys** (`appsettings.json`, environment-variable declarations, `.env` templates, cloud config): for each declared key, verify at least one binding (`GetSection`, `Get<T>`, `Configuration["Key"]`, options pattern, direct env-var read). A config key nothing reads is a promise the code does not keep.
+   - **CLI tools / build-time dependencies** (dotnet-tools.json, package.json scripts, Makefile targets, CI workflow steps): each tool should be invoked somewhere in the build, test, deploy, or dev-loop path. Declared-and-uninvoked = documentation for a workflow the team doesn't actually run.
+   - **Docs claims about tools** (README, ADRs, architecture.md, verification reports): whenever a doc names a specific tool / library / framework / DB provider as part of the stack, cross-check that the corresponding surface above actually contains it AND that surface has call sites. The failure mode is: an ADR names SQLite as the unit-test DB, the csproj lists the SQLite package, but zero test code uses it — the whole triangle is drift.
+   For each finding, cite the declaration location AND the fact of zero call sites (with a representative grep pattern the reviewer can re-run). Distinguish three severities: **dead** (declared, unused, undocumented — remove), **drift** (declared, unused, but docs claim it's active — remove the declaration OR update the docs), **suspect** (declared, has a using directive but no call — investigate whether it's transitively required or actually unnecessary).
 7. **Exception handling review.** Walk every `catch` block, global exception handler, middleware, and framework exception filter in the changed code. For each, verify:
    - **Client errors surface as 4xx, not 5xx.** Exceptions that represent bad input from the caller (`BadHttpRequestException`, `JsonException` from body deserialization, `ArgumentException` on request parameters, model-binding failures, validation exceptions) must produce a 4xx response — typically 400 for malformed input, 401 for auth, 403 for role, 404 for not-found, 409 for conflict. A global handler that catches these and returns 500 is a real defect: it misclassifies a caller mistake as a server bug, misleads observability, and pollutes on-call alerts.
    - **Cancellation is distinguished from server errors.** `OperationCanceledException` / `TaskCanceledException` triggered by client disconnect or request timeout is NOT a 500 — it is either 499 (nginx convention) or a silent close, and MUST NOT be retried by any retry policy (Polly, EF Core execution strategies, etc.).
@@ -39,8 +45,17 @@ When validating, also check that the implementation follows these project conven
    - **Unhandled exceptions have a documented catch-all.** There should be exactly one final catch-all (global exception handler / middleware) that returns 500 with a support-actionable payload (correlation id, batch/request id). Multiple overlapping catch-alls are a smell.
    - **No exception is swallowed silently.** A `catch { }` with no logging is a defect unless the enclosing method's contract explicitly documents it (e.g. `TryGet…` patterns).
    For each finding, cite the file / line and the specific exception type + wrong status code.
+7b. **Verification cycle log update (only if target repo has `docs/verification-report.md`).** The verification-cycle-log pattern is documented in the workflow repo's `PATTERNS.md` (Pattern 3) — a target repo can adopt it by keeping a `docs/verification-report.md` with a "Current state" section per-ADR + a "Cycle log" table of every drift found and resolved over time. If the target repo has that file, emit ready-to-paste table rows for every drift / gap / defect this validation run surfaced (failed ACs, coverage-matrix gaps, declared-vs-used findings, exception-handling defects, plan deviations). Format each row to match the Cycle log table shape in the target file (typically 4 columns: `#`, `Original drift`, `Resolution`, `Fix location`). Use `Resolution: pending (found in iteration {{ITERATION}})` for new findings — actual resolution is added by the operator (or a future validation iteration confirming the fix) after the drift is addressed. If the target does not have that file, emit `N/A — target has no docs/verification-report.md. Consider adopting the pattern per workflow PATTERNS.md #3.` The point is either the log grows over time as an honest audit artifact, or the file's absence gets flagged as an accountability gap.
+7c. **Progress check vs prior iteration (only when a prior validation report is provided below).** If the placeholder `{{PRIOR_VALIDATION}}` below contains content (iteration 2+), compare the substantive findings in this iteration's Items to address against the prior iteration's Items to address. "Substantive findings" means: failed ACs, coverage-matrix gaps, declared-vs-used findings, exception-handling defects, plan deviations, missing/insufficient test categories. Do NOT count cosmetic changes in wording — semantic equivalence is what matters.
+   - If this iteration has NEW substantive findings the prior iteration did not, OR the prior iteration had substantive findings this one no longer has (i.e., they were fixed), then progress is being made — proceed to the OVERALL VERDICT as usual (`PASS` or `FAIL`).
+   - If this iteration's substantive findings are semantically equivalent to the prior iteration's (nothing new, nothing fixed), then the implement stage is not converging on this feedback — emit **`OVERALL VERDICT: STAGNATED`** instead of `PASS` or `FAIL`. Include a one-paragraph explanation of what stayed the same and, if you can infer it, why (e.g., "implement stage was unable to address finding X because …", or "finding Y is a design decision the reviewer must make, not something the implement stage can auto-fix"). STAGNATED is a distinct outcome from PASS (work not necessarily done, but iteration is not producing new signal — a human must decide whether to accept as-is, escalate, or intervene manually).
+   - When `{{PRIOR_VALIDATION}}` is empty (iteration 1 — no prior to compare against), skip this step entirely; the OVERALL VERDICT is `PASS` or `FAIL` per the usual criteria.
 8. Write your report to: {{VALIDATION_PATH}}
    The report must include acceptance-criteria status and a dedicated test coverage section.
+
+The prior iteration's validation report, if any, follows. Use it in step 7c above; do not re-emit its content in your report.
+
+{{PRIOR_VALIDATION}}
 
 Use this exact format:
 
@@ -113,6 +128,20 @@ Preferred tier per AC: end-to-end behavior → integration tests; pure domain lo
 - Evidence: <why the test set is non-duplicative and non-redundant>
 - Gaps: <duplicate/redundant tests that should be removed or merged>
 
+## Declared vs Used Audit
+
+For every declared dependency, config key, CLI tool, and docs-cited tool in the changed surface area, verify at least one non-trivial call site exists.
+
+| Surface | Declaration | Used? | Severity | Notes |
+|---------|-------------|-------|----------|-------|
+| `src/Foo/Foo.csproj` | `Microsoft.EntityFrameworkCore.Sqlite` | ❌ no | drift | ADR-016 claims SQLite unit tests; no `UseSqlite` / `SqliteConnection` call site anywhere in `tests/`. Remove the package OR update the ADR. |
+| `appsettings.json` | `RateLimiting:AdminActionsPerMinute` | ✅ yes | — | Read via `configuration.GetSection(...).Get<T>()` in `RateLimitingSetup.cs:34`. |
+| `Directory.Packages.props` | `Foo.Bar.Baz` v3.1.0 | ⚠️ suspect | suspect | Referenced via `using` in `Bar.cs:12` but no method call, class instantiation, or generic parameter — investigate whether transitively required. |
+| `.github/workflows/ci.yml` | `dotnet-format` step | ✅ yes | — | Runs `dotnet format` against the sln; catches style regressions. |
+
+- Status: `<PASS | FAIL — with count of dead / drift / suspect findings>`
+- Surfaces audited: `<list files inspected: *.csproj, Directory.Packages.props, appsettings*.json, dotnet-tools.json, package.json, CI workflows, ADRs / README claims>`
+
 ## Exception Handling Review
 
 - Status: <PASS | FAIL>
@@ -124,11 +153,25 @@ Preferred tier per AC: end-to-end behavior → integration tests; pure domain lo
 - No silent exception swallowing: <PASS | FAIL>
 - Specific findings: <bullet list of files / lines / exception type / wrong status code, if any>
 
+## Verification Cycle Log Update
+
+Target has `docs/verification-report.md`: `<YES | NO>`
+
+If YES, append these rows to the target's Cycle Log table:
+
+| # | Original drift | Resolution | Fix location |
+|---|----------------|------------|--------------|
+| ... | <e.g., AC 3 has no test coverage — Post_MalformedRequestBody handler returns 500 instead of 400> | `pending (found in iteration {{ITERATION}})` | `src/Api/Middleware/GlobalExceptionHandler.cs` — no branch for `BadHttpRequestException` |
+
+If NO, print: `N/A — target has no docs/verification-report.md. Consider adopting the pattern per workflow PATTERNS.md #3.`
+
 ## Summary
 
 X of Y in-scope acceptance criteria passed. Z items marked N/A (out of scope).
 
 AC coverage matrix verdict: <PASS | FAIL — with count of ACs missing code and/or test citations>
+
+Declared-vs-used audit verdict: <PASS | FAIL — with count of dead / drift / suspect findings>
 
 Plan adherence verdict: <PASS | FAIL>
 
@@ -146,9 +189,16 @@ OVERALL VERDICT: PASS
 
 OVERALL VERDICT: FAIL
 
+(or, only when a prior validation report was provided and this iteration's substantive findings are semantically equivalent to it — see step 7c)
+
+OVERALL VERDICT: STAGNATED
+
+Progress check note: <one paragraph on what stayed the same vs the prior iteration, and — if inferable — why the implement stage did not converge. Only present when verdict is STAGNATED.>
+
 Items to address:
 - <bullet list of failed acceptance-criteria items and what to fix>
 - <bullet list of AC coverage-matrix gaps: AC # / missing code citation / missing test citation / what to add>
+- <bullet list of declared-vs-used findings: surface / declaration / severity (dead|drift|suspect) / remediation (remove declaration OR add call site OR update docs)>
 - <bullet list of plan deviations or missing planned items to address>
 - <bullet list of missing/insufficient test coverage by category and what to add>
 - <bullet list of exception-handling defects: file / line / exception type / current status code / expected status code>

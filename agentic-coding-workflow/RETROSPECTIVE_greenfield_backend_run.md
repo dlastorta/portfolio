@@ -132,10 +132,10 @@ Priority: **P0** = fix before next run · **P1** = strongly worth doing · **P2*
 | 3 | Greenfield mode: role variant or greenfield-detection logic | P1 | 1-2 h | prompts + orchestrator | ✅ done |
 | 4 | Validate stage: "spec item → code + test" matrix output | P1 | 1-2 h | prompt | ✅ done |
 | 5 | Case-study section in workflow README linking this retrospective | P1 | 20 min | docs | ✅ done |
-| 6 | Validate stage: "declared vs used" package/tool audit | P2 | 1-2 h | prompt | |
+| 6 | Validate stage: "declared vs used" package/tool audit | P2 | 1-2 h | prompt | ✅ done |
 | 7 | Metrics ampliadas: LOC, files touched, rules-injected size | P2 | 30 min | orchestrator | ✅ done |
-| 8 | Verification-cycle log pattern baked into Validate stage | P3 | 1 h | prompt | |
-| 9 | "Review-done" heuristic (2 consecutive no-substantive-findings) | P3 | design + 1-2 h | prompt + orchestrator | |
+| 8 | Verification-cycle log pattern baked into Validate stage | P3 | 1 h | prompt | ✅ done |
+| 9 | "Review-done" heuristic (2 consecutive no-substantive-findings) | P3 | design + 1-2 h | prompt + orchestrator | ✅ done |
 | 10 | Exception-handling review bullet in Validate template | P2 | 15 min | prompt | ✅ done |
 | 11 | `templates/tech-stack.default.md` — opt-in greenfield bootstrap template with sensible package defaults + explicit non-goals | P1 | 30 min | templates | ✅ done |
 
