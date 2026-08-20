@@ -20,6 +20,7 @@ are hitting.
 2. [`.cursor/rules/no-speculation.md` per repo — enforce your constraints](#2-cursorrulesno-speculationmd-per-repo--enforce-your-constraints)
 3. [Verification-cycle log — keep audit docs honest over time](#3-verification-cycle-log--keep-audit-docs-honest-over-time)
 4. ["Detected during review cycle" — turn drift into visible learning](#4-detected-during-review-cycle--turn-drift-into-visible-learning)
+5. [`AGENTS.md` per repo — cross-tool agent conventions](#5-agentsmd-per-repo--cross-tool-agent-conventions)
 
 ---
 
@@ -167,6 +168,18 @@ These rules override the agent's default enterprise-<stack> reflexes.
 11. **Docs describe reality.** No aspirational sentences. If code and docs
     disagree, fix one before shipping. A stale audit doc is worse than no
     audit.
+
+## Agent behavior
+
+12. **Prefer Grep + targeted Read over full-file Read.** Full-file reads on
+    large files are token-expensive and rarely necessary. Grep for the
+    symbol or pattern first; Read with offset+limit around the matches.
+    Full-file reads only for small files or when you need the whole
+    structure (class hierarchy, config end-to-end).
+13. **Comments: WHY and WARN only.** Delete WHAT (describes the obvious),
+    WHERE (references to stale docs, bare TODO/FIXME), commented-out code,
+    and unjustified lint/type suppressions. See `AGENTS.md` § Comments
+    policy for the full matrix. Public API docblocks are kept.
 ```
 
 ### Why numbered rules work better than persona prompts
@@ -349,6 +362,93 @@ Note what the bullet does:
   [`prompts/validate-prompt.txt`](prompts/validate-prompt.txt) for how the
   adversarial red-team pass is structured to surface these findings in the
   first place.
+
+---
+
+## 5. `AGENTS.md` per repo — cross-tool agent conventions
+
+### Problem
+
+Different agent tools read different config files: Cursor honors
+`.cursor/rules/`, other tools may not; each ecosystem invents its own
+folder. When the same conventions matter across tools ("keep comments
+minimal", "read narrowly, not full-file", "prefer removing code to adding
+layers"), duplicating them into each tool's native format drifts fast.
+
+The [`AGENTS.md`](https://agents.md/) convention is the emerging
+cross-tool answer — a single file at the repo root that any
+AGENTS.md-aware client picks up automatically. It is the right place for
+conventions that are about **agent behavior** (how the agent reads,
+writes, and terminates work) rather than **code shape** (which is Pattern
+2's job).
+
+### Structure
+
+A single `AGENTS.md` at the target repo's root. Sections cover the
+categories where agent behavior is worth constraining. The reference
+version — with the exact rules used on this workflow's own repo — is at
+[`templates/AGENTS.md`](templates/AGENTS.md).
+
+Minimum viable outline:
+
+```markdown
+# AGENTS.md — cross-tool agent conventions for this repo
+
+## Fixes should make the system simpler, not more complex
+<Prefer removing/consolidating over adding layers, flags, special cases.
+Right-sizing is a token cost lever, not just aesthetic.>
+
+## Comments policy — keep WHY and WARN, delete WHAT and WHERE
+<Categorize each comment: WHAT/WHERE/DEAD/SUPPRESS → delete;
+WHY/WARN/API-contract → keep. Rationale goes in commits and ADRs.>
+
+## File reading discipline
+<Grep first, then targeted Read with offset+limit. Full-file reads only
+for small files or when the whole structure is needed.>
+
+## Session hygiene
+<Fresh session per new work stream. Long conversations accumulate
+context that ships with every subsequent request.>
+```
+
+### Why this deserves its own file (not a section of the README)
+
+READMEs are read by humans starting the project. `AGENTS.md` is read by
+agent tools on every request. Keeping them separate means:
+
+- The README can stay narrative and setup-focused; `AGENTS.md` stays
+  short and directive.
+- Agent tools that respect the convention pick up the rules without
+  humans having to include them in every prompt.
+- Rules can evolve (new comment categories, new tool support) without
+  editing the human-facing README.
+
+### When to use
+
+- **Any repo where multiple people use different agent tools** — `AGENTS.md`
+  gives them one source of truth instead of one file per tool.
+- **Any repo where the same conventions are drifting across `.cursor/rules/`,
+  `.github/copilot-instructions.md`, `CLAUDE.md`, etc.** — consolidate the
+  cross-tool subset into `AGENTS.md`; leave only tool-specific bits in the
+  per-tool files.
+
+### When NOT to use
+
+- **Solo project, single tool, small codebase** — `AGENTS.md` is one more
+  file to maintain. If your `.cursor/rules/` file already covers everything
+  and no other tool is in play, don't add ceremony.
+- **Rules that are truly tool-specific** — keep those in the tool's native
+  file, not in `AGENTS.md`.
+
+### Related patterns
+
+- Pattern 2 (`.cursor/rules/no-speculation.md`) — that pattern governs
+  **code shape** (right-sizing, dependencies, test discipline);
+  `AGENTS.md` governs **agent behavior** (reading, commenting, session
+  management). They compose without overlapping.
+- Pattern 1 (`tech-stack.md`) — declares libraries and framework choices;
+  `AGENTS.md` says nothing about libraries. They live at the same level in
+  the repo root, address different questions.
 
 ---
 
